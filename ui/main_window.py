@@ -111,32 +111,50 @@ class MainWindow(QWidget):
             QMessageBox.critical(self, "Error", f"An error occurred: {str(e)}")
 
     def display_all_timetables(self):
+        # Clear previous timetables
         print(f"Displaying timetables: {self.class_timetables}")
         for i in reversed(range(self.timetable_layout.count())):
             widget = self.timetable_layout.itemAt(i).widget()
             if widget:
                 widget.setParent(None)
 
-        for class_name in self.classes:
-            self.timetable_layout.addWidget(QLabel(f"<b>Class {class_name}</b>"))
+        # Use QGridLayout for 2-column display
+        grid_layout = QGridLayout()
 
-            class_table = self.class_timetables.get(class_name, [])
+        for index, class_name in enumerate(self.classes):
+            row = index // 2
+            col = index % 2
 
-            if not isinstance(class_table, list) or not all(isinstance(day, list) for day in class_table):
-                print(f"⚠️ Skipping invalid timetable for {class_name}")
-                continue
+            # Container widget for each timetable
+            class_widget = QWidget()
+            class_layout = QVBoxLayout(class_widget)
 
+            class_layout.addWidget(QLabel(f"<b>Class {class_name}</b>"))
             table = QTableWidget(PERIODS, DAYS)
             table.setHorizontalHeaderLabels(["Mon", "Tue", "Wed", "Thu", "Fri"])
             table.setVerticalHeaderLabels([f"Period {i + 1}" for i in range(PERIODS)])
 
-            for day, periods in enumerate(class_table):
-                for period, subject in enumerate(periods):
-                    if subject:
-                        table.setItem(period, day, QTableWidgetItem(subject))
+            if class_name in self.class_timetables:
+                class_table = self.class_timetables[class_name]
+                for day, periods in enumerate(class_table):
+                    for period, subject in enumerate(periods):
+                        if subject:
+                            table.setItem(period, day, QTableWidgetItem(subject))
+                if not any(any(period for period in day) for day in class_table):
+                    table.setItem(0, 0, QTableWidgetItem("No subjects assigned"))
 
             table.setFrameStyle(QFrame.Panel | QFrame.Raised)
-            self.timetable_layout.addWidget(table)
+            class_layout.addWidget(table)
+
+            grid_layout.addWidget(class_widget, row, col)
+
+        # Replace existing layout
+        for i in reversed(range(self.timetable_layout.count())):
+            widget = self.timetable_layout.itemAt(i).widget()
+            if widget:
+                widget.setParent(None)
+
+        self.timetable_layout.addLayout(grid_layout)
 
     def check_for_overlaps(self):
         overlaps = []

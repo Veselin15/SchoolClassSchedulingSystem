@@ -23,10 +23,17 @@ def generate_schedule(subject_sessions):
 
 def generate_schedule_for_classes(class_subject_data):
     """
-    Generate a timetable for all classes independently, with per-day subject constraints.
+    Generate a timetable for all classes with constraints:
+    - Each subject appears max once per day per class
+    - Subjects are spread across days
+    - No overlapping subjects across classes (i.e., same teacher not in two places at once)
     """
     class_timetables = {}
     print(f"Generating schedule for classes: {class_subject_data}")
+
+    # Global subject-time tracker: {(day, period): set(subjects)}
+    global_subject_slots = {(d, p): set() for d in range(DAYS) for p in range(PERIODS)}
+
     for class_name, subject_data in class_subject_data.items():
         timetable = [[None for _ in range(PERIODS)] for _ in range(DAYS)]
         day_subject_count = {day: {} for day in range(DAYS)}  # Track subjects per day
@@ -46,10 +53,14 @@ def generate_schedule_for_classes(class_subject_data):
                 day_slots = [(d, p) for d, p in available_slots if d == day]
                 random.shuffle(day_slots)
                 for d, p in day_slots:
-                    if timetable[d][p] is None and day_subject_count[d].get(subject, 0) == 0:
+                    if (timetable[d][p] is None and
+                        subject not in global_subject_slots[(d, p)] and
+                        day_subject_count[d].get(subject, 0) == 0):
+
                         timetable[d][p] = subject
                         available_slots.remove((d, p))
                         day_subject_count[d][subject] = 1
+                        global_subject_slots[(d, p)].add(subject)
                         placed += 1
                         break
 
@@ -58,10 +69,12 @@ def generate_schedule_for_classes(class_subject_data):
                 extra_slots = [slot for slot in available_slots]
                 random.shuffle(extra_slots)
                 for d, p in extra_slots:
-                    if timetable[d][p] is None:
+                    if (timetable[d][p] is None and
+                        subject not in global_subject_slots[(d, p)]):
                         timetable[d][p] = subject
                         available_slots.remove((d, p))
                         day_subject_count[d][subject] = day_subject_count[d].get(subject, 0) + 1
+                        global_subject_slots[(d, p)].add(subject)
                         placed += 1
                         if placed == total_sessions:
                             break
@@ -72,4 +85,3 @@ def generate_schedule_for_classes(class_subject_data):
         class_timetables[class_name] = timetable
 
     return class_timetables
-
