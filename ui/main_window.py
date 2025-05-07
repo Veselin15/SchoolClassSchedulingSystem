@@ -1,48 +1,131 @@
+import logging
+import html
+from typing import Any, Dict, List, Optional, Set, Tuple
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
     QSpinBox, QPushButton, QTableWidget, QTableWidgetItem, QGridLayout,
-    QScrollArea, QFrame, QMessageBox, QCheckBox, QGroupBox
+    QScrollArea, QFrame, QMessageBox, QCheckBox, QGroupBox, QDialog, QTabWidget
 )
 from functools import partial
-from scheduler.scheduler import generate_schedule
+from scheduler.scheduler import generate_schedule_for_classes
 from models.school_data import get_classes, get_subjects
 from scheduler.scheduler import PERIODS, DAYS
 from PyQt5.QtWidgets import QHeaderView
 
+logging.basicConfig(level=logging.INFO)
+
+
+class TimetableViewerWindow(QDialog):
+    def __init__(self, parent: Optional[QWidget] = None, class_timetables: Optional[Dict[str, Any]] = None) -> None:
+        super().__init__(parent)
+        self.class_timetables = class_timetables or {}
+        self.init_ui()
+
+    def init_ui(self) -> None:
+        self.setWindowTitle("All Timetables View")
+        self.setGeometry(50, 50, 1600, 900)  # Larger window size
+
+        layout = QVBoxLayout(self)
+
+        # Create a tab widget to display timetables
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setTabPosition(QTabWidget.North)
+
+        # Add tabs for each class
+        for class_name, data in self.class_timetables.items():
+            if not isinstance(data, dict) or "timetable" not in data:
+                continue
+
+            tab = QWidget()
+            tab_layout = QVBoxLayout(tab)
+
+            # Create table for this class
+            table = self.create_timetable_for_class(class_name, data)
+            tab_layout.addWidget(table)
+
+            self.tab_widget.addTab(tab, f"Class {class_name}")
+
+        layout.addWidget(self.tab_widget)
+
+        # Add a close button
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.close)
+        close_button.setFixedSize(150, 50)
+        layout.addWidget(close_button, alignment=Qt.AlignCenter)
+
+    def create_timetable_for_class(self, class_name: str, data: Dict[str, Any]) -> QTableWidget:
+        table = QTableWidget(PERIODS, DAYS)
+        table.setHorizontalHeaderLabels(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"])
+        table.setVerticalHeaderLabels([f"Period {i + 1}" for i in range(PERIODS)])
+
+        # Make the table bigger
+        table.setMinimumHeight(700)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        table.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+        # Set large column and row sizes
+        for c in range(DAYS):
+            table.setColumnWidth(c, 200)
+        for r in range(PERIODS):
+            table.setRowHeight(r, 80)
+
+        # Fill the table with data
+        timetable = data["timetable"]
+        teacher_assignments = data.get("teacher_assignments", {})
+
+        for day in range(DAYS):
+            for period in range(PERIODS):
+                subject = timetable[day][period]
+                if subject:
+                    # Find the teacher
+                    teacher = "Unknown"
+                    if subject in teacher_assignments and (day, period) in teacher_assignments[subject]:
+                        teacher = teacher_assignments[subject][(day, period)]
+
+                    item = QTableWidgetItem(f"{subject}\n{teacher}")
+                    item.setTextAlignment(Qt.AlignCenter)
+                    # Make the font larger
+                    font = item.font()
+                    font.setPointSize(12)
+                    item.setFont(font)
+                    table.setItem(period, day, item)
+
+        return table
+
 
 class MainWindow(QWidget):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("School Class Scheduling System")
-        self.setGeometry(100, 100, 1200, 700)
-
         self.classes = get_classes()
         self.subjects = get_subjects()
-        self.subject_spins = {}
+        self.subject_spins: Dict[str, QSpinBox] = {}
 
         # Global settings for all classes
-        self.global_subject_data = {
+        self.global_subject_data: Dict[str, Dict[str, int]] = {
             subject: {"sessions": 0, "teachers": 1} for subject in self.subjects
         }
 
         # Initialize class_subject_data with global settings
-        self.class_subject_data = {
+        self.class_subject_data: Dict[str, Dict[str, Dict[str, int]]] = {
             class_name: {subject: {"sessions": 0, "teachers": 1} for subject in self.subjects}
             for class_name in self.classes
         }
 
-        self.class_timetables = {}
-        self.occupied_periods = {class_name: set() for class_name in self.classes}
+        self.class_timetables: Dict[str, Any] = {}
+        self.occupied_periods: Dict[str, Set[Any]] = {class_name: set() for class_name in self.classes}
 
         # For tracking consistent teacher assignments
-        self.class_subject_teacher_mapping = {
+        self.class_subject_teacher_mapping: Dict[str, Dict[str, int]] = {
             class_name: {} for class_name in self.classes
         }
 
         self.init_ui()
 
-    def init_ui(self):
+    def init_ui(self) -> None:
+        self.setWindowTitle("School Class Scheduling System")
+        self.setGeometry(100, 100, 1200, 700)
+
         layout = QVBoxLayout()
 
         # --- Global Settings Group ---
@@ -124,6 +207,13 @@ class MainWindow(QWidget):
         self.schedule_button.setFixedSize(250, 70)
         button_layout.addWidget(self.schedule_button, alignment=Qt.AlignCenter)
 
+        # --- View All Timetables button ---
+        self.view_all_button = QPushButton("View All Timetables")
+        self.view_all_button.clicked.connect(self.open_timetable_viewer)
+        self.view_all_button.setFixedSize(200, 70)
+        self.view_all_button.setEnabled(False)  # Initially disabled until timetables are generated
+        button_layout.addWidget(self.view_all_button, alignment=Qt.AlignCenter)
+
         # --- Clear button ---
         self.clear_button = QPushButton("Clear Timetables")
         self.clear_button.clicked.connect(self.clear_timetables)
@@ -148,13 +238,13 @@ class MainWindow(QWidget):
         self.setLayout(layout)
         self.apply_global_settings()  # Initialize with global settings
 
-    def update_total_periods_label(self):
+    def update_total_periods_label(self) -> None:
         total_sessions = 0
         for subject, settings in self.global_subject_data.items():
             total_sessions += settings["sessions"]
         self.total_periods_label.setText(f"Total Periods per Week (For one class): {total_sessions}")
 
-    def update_global_subject_data(self, subject):
+    def update_global_subject_data(self, subject: str) -> None:
         sessions = self.subject_spins[subject].value()
         teachers = self.subject_spins[f"{subject}_teachers"].value()
 
@@ -167,7 +257,7 @@ class MainWindow(QWidget):
         self.update_total_periods_label()
         self.update_class_info()
 
-    def apply_global_settings(self):
+    def apply_global_settings(self) -> None:
         # Apply global settings to all classes
         for class_name in self.classes:
             for subject in self.subjects:
@@ -180,21 +270,22 @@ class MainWindow(QWidget):
         self.update_total_periods_label()
         self.update_class_info()
 
-    def load_class_settings(self, class_name):
+    def load_class_settings(self, class_name: str) -> None:
         self.update_class_info()
 
-    def update_class_info(self):
-        class_name = self.class_combo.currentText()
-        info_text = f"<b>Class {class_name} Settings</b><br>"
-        info_text += "Using global subject settings:<br>"
+    def update_class_info(self) -> None:
+        class_name = html.escape(self.class_combo.currentText())
+        info_lines = [f"<b>Class {class_name} Settings</b><br>", "Using global subject settings:<br>"]
         for subject in self.subjects:
             sessions = self.global_subject_data[subject]["sessions"]
             if sessions > 0:
                 teachers = self.global_subject_data[subject]["teachers"]
-                info_text += f"• {subject}: {sessions} sessions with {teachers} teacher(s)<br>"
+                safe_subject = html.escape(subject)
+                info_lines.append(f"• {safe_subject}: {sessions} sessions with {teachers} teacher(s)<br>")
+        info_text = ''.join(info_lines)
         self.class_info.setText(info_text)
 
-    def generate_all_schedules(self):
+    def generate_all_schedules(self) -> None:
         try:
             # Clear the teacher mapping for a fresh start
             self.class_subject_teacher_mapping = {class_name: {} for class_name in self.classes}
@@ -206,13 +297,16 @@ class MainWindow(QWidget):
             )
 
             # Debug print to catch malformed data
-            print("Generated timetables:")
+            logging.info("Generated timetables:")
             for cls, table in self.class_timetables.items():
-                print(cls, "->", table)
+                logging.info("%s -> %s", cls, table)
                 if not isinstance(table, dict) or "timetable" not in table:
-                    print(f"⚠️ Problem with {cls}'s timetable format.")
+                    logging.warning("⚠️ Problem with %s's timetable format.", cls)
 
             self.display_all_timetables()
+
+            # Enable the View All button now that we have timetables
+            self.view_all_button.setEnabled(True)
 
             overlaps = self.check_for_overlaps()
             if overlaps:
@@ -227,7 +321,7 @@ class MainWindow(QWidget):
             import traceback
             traceback.print_exc()
 
-    def display_all_timetables(self):
+    def display_all_timetables(self) -> None:
         # Clear existing timetables first
         while self.scroll_content_layout.count():
             item = self.scroll_content_layout.takeAt(0)
@@ -242,7 +336,7 @@ class MainWindow(QWidget):
             class_container.setLineWidth(1)
             class_layout = QVBoxLayout(class_container)
 
-            class_title = QLabel(f"<h2>Class {class_name}</h2>")
+            class_title = QLabel(f"<h2>Class {html.escape(class_name)}</h2>")
             class_layout.addWidget(class_title)
 
             # Create timetable
@@ -294,25 +388,25 @@ class MainWindow(QWidget):
             spacer.setFixedHeight(20)
             self.scroll_content_layout.addWidget(spacer)
 
-    def check_for_overlaps(self):
-        overlaps = []
-        teacher_conflicts = {}  # {subject: {(day, period): [classes]}}
+    def check_for_overlaps(self) -> List[Tuple[int, int, List[str]]]:
+        overlaps: List[Tuple[int, int, List[str]]] = []
+        teacher_conflicts: Dict[str, Dict[Tuple[int, int], List[str]]] = {}
 
         for day_index in range(DAYS):
             for period in range(PERIODS):
-                subject_to_classes = {}
-                teacher_usage = {}  # {subject: {teacher_id: [classes]}}
+                subject_to_classes: Dict[str, List[str]] = {}
+                teacher_usage: Dict[str, Dict[int, List[str]]] = {}
 
                 for class_name, timetable_data in self.class_timetables.items():
                     if isinstance(timetable_data, dict) and "timetable" in timetable_data:
                         timetable = timetable_data["timetable"]
                         teacher_assignments = timetable_data.get("teacher_assignments", {})
                     else:
-                        print(f"⚠️ Invalid timetable for class {class_name}: {timetable_data}")
+                        logging.warning("⚠️ Invalid timetable for class %s: %s", class_name, timetable_data)
                         continue
 
                     if not isinstance(timetable, list) or len(timetable) != DAYS:
-                        print(f"⚠️ Invalid structure in class {class_name}: {timetable}")
+                        logging.warning("⚠️ Invalid structure in class %s: %s", class_name, timetable)
                         continue
 
                     subject = timetable[day_index][period]
@@ -332,7 +426,7 @@ class MainWindow(QWidget):
                         if " - T" in teacher:
                             try:
                                 teacher_id = int(teacher.split(" - T")[1]) - 1
-                            except:
+                            except Exception:
                                 teacher_id = None
 
                         if teacher_id is not None:
@@ -364,7 +458,14 @@ class MainWindow(QWidget):
 
         return overlaps
 
-    def get_teacher_for_subject(self, class_name, subject, day, period, teacher_index):
+    def get_teacher_for_subject(
+        self,
+        class_name: str,
+        subject: str,
+        day: int,
+        period: int,
+        teacher_index: int
+    ) -> str:
         # Check if this class already has a teacher assigned for this subject
         if subject not in self.class_subject_teacher_mapping[class_name]:
             # Assign a consistent teacher ID for this class-subject combination
@@ -374,7 +475,16 @@ class MainWindow(QWidget):
         assigned_teacher_id = self.class_subject_teacher_mapping[class_name][subject]
         return f"{subject} - T{assigned_teacher_id + 1}"
 
-    def clear_timetables(self):
+    def open_timetable_viewer(self) -> None:
+        """Open a new window with all timetables displayed in a larger format."""
+        if not self.class_timetables:
+            QMessageBox.warning(self, "No Timetables", "Please generate timetables first.")
+            return
+
+        viewer = TimetableViewerWindow(self, self.class_timetables)
+        viewer.exec_()  # Modal dialog
+
+    def clear_timetables(self) -> None:
         # Clear the timetable container
         while self.scroll_content_layout.count():
             item = self.scroll_content_layout.takeAt(0)
@@ -386,3 +496,6 @@ class MainWindow(QWidget):
 
         # Clear the teacher mapping
         self.class_subject_teacher_mapping = {class_name: {} for class_name in self.classes}
+
+        # Disable the View All button since there are no timetables
+        self.view_all_button.setEnabled(False)
