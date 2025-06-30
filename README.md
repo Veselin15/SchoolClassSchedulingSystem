@@ -1,31 +1,40 @@
-# 🗓️ School Class Scheduling System
+# 🏫 School Class Scheduling System
 
-A Python-based application to manage and generate school class schedules. It uses a database backend (e.g., SQLite/MySQL) and provides tools to assign teachers, classrooms, time slots, and subjects intelligently.
+A smart and flexible class scheduling system built using **Python** and **PyQt5** that allows schools to create optimized and conflict-free timetables for multiple classes, subjects, and teachers.
 
-## 🧩 Features
+This application lets you:
+- Define custom session counts per subject and class.
+- Set teacher availability per subject.
+- Automatically generate and visualize full weekly schedules.
+- Detect and report overlapping teacher assignments.
 
-- **Create/update** teachers, students, classes, rooms, periods, and subjects.
-- **Assign** subjects to class/section with teachers and rooms.
-- **Auto-generate** conflict-free timetables based on constraints.
-- **Export/print** schedules in readable formats.
-- **CLI interface** (or GUI if implemented separately).
+---
 
-## 🛠️ Tech Stack
+## 📸 Preview
 
-- **Language**: Python 3.x  
-- **Database**: SQLite (default) or MySQL (optional)  
-- **Libraries**: `sqlalchemy` (ORM), `pandas`, `prettytable`, etc.
+_(Add screenshots here of the GUI and generated timetable UI for better engagement)_
 
-## 🚀 Getting Started
+---
 
-### Prerequisites
+## ✨ Features
 
-- Python 3.7+  
-- `pip` (package manager)
+✅ **User-Friendly PyQt5 Interface**  
+✅ **Per-Class Session Settings** (e.g., Class A has 5 Math sessions, Class B has 3)  
+✅ **Global Teacher Allocation** (e.g., 3 teachers available for Physics)  
+✅ **Apply Session Settings Across All Classes**  
+✅ **One-Click Timetable Generation**  
+✅ **Timetable Viewer with Tabbed Layout**  
+✅ **Teacher Overlap Detection & Conflict Alerts**  
+✅ **Scrollable Timetable Display with Subject + Teacher Names**  
+✅ **Clear Timetables for Regeneration**
 
-### Installation
+---
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Veselin15/SchoolClassSchedulingSystem.git
-   cd SchoolClassSchedulingSystem
+## 🧱 Architecture Overview
+
+- **GUI**: `PyQt5`
+- **Core Logic**: `scheduler.py` handles period planning and teacher distribution.
+- **Data Layer**: `models/school_data.py` loads class and subject definitions.
+- **Main UI**: `ui/main_window.py` orchestrates all user actions and scheduling.
+
+---
